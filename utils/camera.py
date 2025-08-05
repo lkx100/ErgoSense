@@ -63,7 +63,7 @@ def draw_landmarks_on_image(image: np.ndarray, landmarks) -> np.ndarray:
     for i, landmark in enumerate(landmarks):
         x = int(landmark.x * width)
         y = int(landmark.y * height)
-        cv.circle(annotated_image, (x, y), 3, (0, 255, 0), -1)
+        cv.circle(annotated_image, (x, y), 10, (0, 255, 0), -1)
     
     # Draw key connections
     connections = [
