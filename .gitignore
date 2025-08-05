@@ -1,10 +1,19 @@
 # Python-generated files
 __pycache__/
+**/__init__.py
 *.py[oc]
 build/
 dist/
 wheels/
 *.egg-info
+.github/
+.DS_Store
 
 # Virtual environments
 .venv
+
+# Codebase specific
+models/
+test.ipynb
+test.py
+temp_main.py
