@@ -26,7 +26,7 @@ CAMERA_SETTINGS = {
 
 # MediaPipe model settings
 MODEL_SETTINGS = {
-    'model_path': './models/pose_landmarker_full.task',
+    'model_path': './models/pose_landmarker_lite.task',
     'min_pose_detection_confidence': 0.5,
     'min_pose_presence_confidence': 0.5,
     'min_tracking_confidence': 0.5,

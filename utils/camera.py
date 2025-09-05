@@ -5,6 +5,24 @@ import cv2 as cv
 import numpy as np
 from typing import Optional, Tuple
 
+line_thickness = 1
+line_color = (255, 0, 0)
+
+circle_thickness = -1
+circle_color = (0, 255, 0)
+circle_radius = 4
+
+# Draw key connections
+connections = [
+    # Face
+    (0, 1), (1, 2), (2, 3), (3, 7), (0, 4), (4, 5), (5, 6), (6, 8),
+    # Arms  
+    (9, 10), (11, 12), (11, 13), (13, 15), (12, 14), (14, 16),
+    # Body
+    (11, 23), (12, 24), (23, 24),
+    # Legs
+    (23, 25), (25, 27), (27, 29), (27, 31), (24, 26), (26, 28), (28, 30), (28, 32)
+]
 
 class CameraManager:
     """Manage camera operations for ErgoSense"""
@@ -63,25 +81,13 @@ def draw_landmarks_on_image(image: np.ndarray, landmarks) -> np.ndarray:
     for i, landmark in enumerate(landmarks):
         x = int(landmark.x * width)
         y = int(landmark.y * height)
-        cv.circle(annotated_image, (x, y), 10, (0, 255, 0), -1)
-    
-    # Draw key connections
-    connections = [
-        # Face
-        (0, 1), (1, 2), (2, 3), (3, 7), (0, 4), (4, 5), (5, 6), (6, 8),
-        # Arms  
-        (9, 10), (11, 12), (11, 13), (13, 15), (12, 14), (14, 16),
-        # Body
-        (11, 23), (12, 24), (23, 24),
-        # Legs
-        (23, 25), (25, 27), (27, 29), (27, 31), (24, 26), (26, 28), (28, 30), (28, 32)
-    ]
+        cv.circle(img=annotated_image, center=(x, y), radius=circle_radius, color=circle_color, thickness=circle_thickness)
     
     for connection in connections:
         start_idx, end_idx = connection
         if start_idx < len(landmarks) and end_idx < len(landmarks):
             start_point = (int(landmarks[start_idx].x * width), int(landmarks[start_idx].y * height))
             end_point = (int(landmarks[end_idx].x * width), int(landmarks[end_idx].y * height))
-            cv.line(annotated_image, start_point, end_point, (255, 0, 0), 2)
+            cv.line(img=annotated_image, pt1=start_point, pt2=end_point, color=line_color, thickness=line_thickness)
     
     return annotated_image

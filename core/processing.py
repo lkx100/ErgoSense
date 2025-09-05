@@ -9,6 +9,7 @@ Minimal wiring:
 
 from typing import Any, Dict, Tuple, Optional
 import time
+import math
 import cv2 as cv
 
 from core.pose_detector import PoseDetector
@@ -27,8 +28,11 @@ def _ensure_detector() -> bool:
     global _detector, _detector_initialized
     if _detector is None:
         model_path = MODEL_SETTINGS.get("model_path", "./models/pose_landmarker_full.task")
-        _detector = PoseDetector(model_path)
-        _detector_initialized = _detector.initialize()
+        print(f"[ErgoSense] Initializing PoseDetector (IMAGE mode) with model: {model_path}")
+        # Use IMAGE mode for single still frames from st.camera_input
+        _detector = PoseDetector(model_path, running_mode="IMAGE")
+    _detector_initialized = _detector.initialize()
+    print(f"[ErgoSense] PoseDetector init: {_detector_initialized}")
     return _detector_initialized
 
 
@@ -56,12 +60,10 @@ def process_frame(image) -> Tuple[Any, Dict[str, Any]]:
     except Exception:
         return image, {"status": "bgr_to_rgb_failed"}
 
-    # Timestamp in milliseconds for LIVE_STREAM
-    timestamp_ms = int(cv.getTickCount() / cv.getTickFrequency() * 1000)
-
-    # Run async detection and read latest result
-    det.detect_async(rgb, timestamp_ms)
-    landmarks = det.get_latest_landmarks()
+    # Use IMAGE mode for a single capture to get immediate results
+    landmarks = det.detect_image(rgb)
+    if landmarks is None:
+        print("[ErgoSense] No landmarks detected in IMAGE mode")
 
     annotated = image
     if landmarks:
@@ -73,9 +75,16 @@ def process_frame(image) -> Tuple[Any, Dict[str, Any]]:
 
         # Compute posture metrics (best-effort)
         try:
-            metrics = _extractor.get_all_metrics(landmarks) or {}
+            raw_metrics = _extractor.get_all_metrics(landmarks) or {}
         except Exception:
-            metrics = {}
+            raw_metrics = {}
+        # Round numeric metrics for display
+        metrics = {}
+        for k, v in raw_metrics.items():
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and not math.isnan(v):
+                metrics[k] = round(float(v), 4)
+            else:
+                metrics[k] = v
         metrics["status"] = "ok"
     else:
         metrics = {"status": "no_landmarks"}
