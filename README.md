@@ -147,10 +147,6 @@ Contributions are welcome! Here are some ways to contribute:
 4. Run tests (when available)
 5. Submit a pull request
 
-## 📝 License
-
-This project is open source. Please check the license file for details.
-
 ## 🙏 Acknowledgments
 
 - **Google MediaPipe** - For providing excellent pose detection models
