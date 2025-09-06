@@ -11,11 +11,11 @@ POSTURE_THRESHOLDS = {
 
 # Timing settings (seconds)
 TIMING_SETTINGS = {
-    'calibration_duration': 5,
-    'neck_posture_alert_delay': 30,
-    'shoulder_posture_alert_delay': 30, 
-    'screen_distance_alert_delay': 10,
-    'eye_break_reminder_interval': 1200,  # 20 minutes
+    'calibration_duration': 5,  # default 5 sec
+    'neck_posture_alert_delay': 5,  # default 30 sec
+    'shoulder_posture_alert_delay': 5,  # default 30 sec
+    'screen_distance_alert_delay': 5,  # default 10 sec
+    'eye_break_reminder_interval': 1200,  # default 20 minutes
 }
 
 # Camera settings

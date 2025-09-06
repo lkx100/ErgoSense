@@ -55,23 +55,37 @@ A real-time posture monitoring application that uses computer vision to help imp
 
    Download any one of them officially from [Mediapipe by Google](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker) to ensure you have the latest versions.
 
-### Running the Application
+### Running the Application (Browser‑First Recommended)
+
+The Streamlit browser UI is now the primary interface. All video processing happens locally in your browser/container (no frames are uploaded).
 
 ```bash
-# Using uv
-uv run python main.py
+# Browser-first (recommended)
+uv run streamlit run ergo_web.py
 
-# Using python directly
-python main.py
+# or with Docker (build then run)
+docker build -t ergosense .
+docker run -p 8501:8501 ergosense
+# Open http://localhost:8501 in your browser
 ```
 
-Press `q` to quit the application.
+#### Legacy Desktop Demo (Deprecated)
+
+`main.py` is retained only for temporary troubleshooting and will be removed in a future cleanup release.
+
+```bash
+# Legacy desktop demo (deprecated)
+uv run python main.py
+# or
+python main.py
+# Press q to quit
+```
 
 ## 📁 Project Structure
 
 ```
 ErgoSense/
-├── main.py                 # Application entry point
+├── main.py                 # Legacy desktop demo (deprecated)
 ├── pyproject.toml          # Project configuration
 ├── config/                 # Configuration settings
 │   └── defaults.py         # Default thresholds and settings

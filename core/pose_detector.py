@@ -1,6 +1,13 @@
 """
 MediaPipe-based pose detection for ErgoSense
 """
+import os
+
+# Suppress verbose C++ / framework logs (GLOG_minloglevel: 0=INFO,1=WARNING,2=ERROR,3=FATAL)
+os.environ.setdefault("GLOG_minloglevel", "2")
+# TensorFlow-style log level if any TF components are indirectly used
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+
 import cv2 as cv
 import mediapipe as mp
 from mediapipe.tasks import python
@@ -8,26 +15,29 @@ from mediapipe.tasks.python import vision
 import numpy as np
 from typing import Optional, Callable, Any
 
+# Runtime debug flag (enable detailed prints with ERGOSENSE_DEBUG=1)
+DEBUG = os.getenv("ERGOSENSE_DEBUG", "0") in ("1", "true", "True")
+
 
 class PoseDetector:
     """Pose detection using MediaPipe (supports LIVE_STREAM and IMAGE modes)"""
-    
+
     def __init__(self, model_path: str = "./models/pose_landmarker_full.task", running_mode: str = "LIVE_STREAM"):
         self.model_path = model_path
         self.latest_result = None
         self.landmarker = None
         self.running_mode_str = running_mode.upper() if isinstance(running_mode, str) else "LIVE_STREAM"
-        
+
         # MediaPipe classes
         self.BaseOptions = mp.tasks.BaseOptions
         self.PoseLandmarker = mp.tasks.vision.PoseLandmarker
         self.PoseLandmarkerOptions = mp.tasks.vision.PoseLandmarkerOptions
         self.VisionRunningMode = mp.tasks.vision.RunningMode
-        
+
     def _result_callback(self, result, output_image, timestamp_ms):
         """Callback function to handle pose detection results"""
         self.latest_result = result
-        
+
     def initialize(self) -> bool:
         """Initialize the pose landmarker"""
         try:
@@ -53,18 +63,21 @@ class PoseDetector:
                     min_tracking_confidence=0.5,
                     output_segmentation_masks=False,
                 )
-            
+
             self.landmarker = self.PoseLandmarker.create_from_options(options)
+            if DEBUG:
+                print(f"[ErgoSense] PoseDetector initialized (mode={self.running_mode_str}, model={self.model_path})")
             return True
         except Exception as e:
-            print(f"Failed to initialize pose detector: {e}")
+            if DEBUG:
+                print(f"[ErgoSense] Failed to initialize pose detector: {e}")
             return False
-    
+
     def detect_async(self, rgb_image: np.ndarray, timestamp_ms: int) -> None:
         """Perform asynchronous pose detection"""
         if self.landmarker is None:
             return
-            
+
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_image)
         self.landmarker.detect_async(mp_image, timestamp_ms)
 
@@ -78,17 +91,21 @@ class PoseDetector:
             if result and result.pose_landmarks:
                 return result.pose_landmarks[0]
             return None
-        except Exception:
+        except Exception as e:
+            if DEBUG:
+                print(f"[ErgoSense] detect_image error: {e}")
             return None
-    
+
     def get_latest_landmarks(self) -> Optional[Any]:
         """Get the latest pose landmarks"""
         if self.latest_result and self.latest_result.pose_landmarks:
             return self.latest_result.pose_landmarks[0]  # Return first pose
         return None
-    
+
     def cleanup(self):
         """Clean up resources"""
         if self.landmarker:
             self.landmarker.close()
             self.landmarker = None
+            if DEBUG:
+                print("[ErgoSense] PoseDetector cleaned up")
