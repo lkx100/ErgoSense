@@ -19,14 +19,28 @@ A real-time posture monitoring application that uses computer vision to help imp
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### 1. Using Docker
+Install docker desktop from [here](https://docs.docker.com/get-started/introduction/get-docker-desktop/), if not already installed.
 
+Pull and run the official Docker image:
 
-- Python 3.12 or higher
-- Webcam or built-in camera
-- [uv](https://docs.astral.sh/uv/) package manager (recommended) or pip
+```bash
+# Pull the latest image
+docker pull luckyx100/ergosense
 
-### Installation
+# Run the container
+docker run -it -p 8501:8501 luckyx100/ergosense
+```
+
+To Access the application:
+Open http://localhost:8501 in your browser
+
+### 2. Local Setup
+
+   - Python 3.12 or higher
+   - [uv](https://docs.astral.sh/uv/) package manager (recommended) or pip
+
+**Installation Steps**
 
 1. **Clone the repository**
    ```bash
@@ -43,7 +57,7 @@ A real-time posture monitoring application that uses computer vision to help imp
    
    Or Using pip:
    ```bash
-   pip install opencv-python mediapipe
+   pip install opencv-python mediapipe streamlit streamlit-webrtc
    ```
 
 3. **Download MediaPipe models** (if not included)
@@ -55,52 +69,36 @@ A real-time posture monitoring application that uses computer vision to help imp
 
    Download any one of them officially from [Mediapipe by Google](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker) to ensure you have the latest versions.
 
-### Running the Application (Browser‑First Recommended)
+4. **Running the Application**
 
-The Streamlit browser UI is now the primary interface. All video processing happens locally in your browser/container (no frames are uploaded).
+   The Streamlit browser UI is now the primary interface. All video processing happens locally in your browser (no frames are uploaded).
 
-```bash
-# Browser-first (recommended)
-uv run streamlit run ergo_web.py
+   ```bash
+   # Run locally with UV
+   uv run streamlit run ergo_web.py
 
-# or with Docker (build then run)
-docker build -t ergosense .
-docker run -p 8501:8501 ergosense
-# Open http://localhost:8501 in your browser
-```
-
-#### Legacy Desktop Demo (Deprecated)
-
-`main.py` is retained only for temporary troubleshooting and will be removed in a future cleanup release.
-
-```bash
-# Legacy desktop demo (deprecated)
-uv run python main.py
-# or
-python main.py
-# Press q to quit
-```
+   # or directly with Python
+   python -m streamlit run ergo_web.py  # use python3 for macOS or linux
+   ```
 
 ## 📁 Project Structure
 
 ```
 ErgoSense/
-├── main.py                 # Legacy desktop demo (deprecated)
-├── pyproject.toml          # Project configuration
-├── config/                 # Configuration settings
-│   └── defaults.py         # Default thresholds and settings
-├── core/                   # Core functionality
-│   ├── pose_detector.py    # MediaPipe pose detection wrapper
+├── ergo_web.py            # Main Streamlit web interface
+├── config/                # Configuration settings
+│   └── defaults.py        # Default thresholds and settings
+├── core/                  # Core functionality
+│   ├── pose_detector.py   # MediaPipe pose detection wrapper
 │   └── landmark_extractor.py # Posture analysis logic
-├── models/                 # MediaPipe model files
-│   ├── pose_landmarker_lite.task
-│   ├── pose_landmarker_full.task
-│   └── pose_landmarker_heavy.task
-├── utils/                  # Utility functions
-│   ├── camera.py           # Camera management and visualization
-│   ├── logger.py           # Logging utilities
-│   └── helpers.py          # Helper functions
-└── monitoring/             # Future monitoring features
+├── models/                # Store MediaPipe model files here
+├── utils/                 # Utility functions
+│   └── camera.py         # Camera management and visualization
+└── monitoring/            # Future monitoring features
+├── main.py                # Legacy desktop demo (deprecated)
+├── Dockerfile             # Container configuration
+├── uv.lock                # UV dependency lock file
+├── pyproject.toml         # Project configuration and dependencies
 ```
 
 ## ⚙️ Configuration
@@ -124,16 +122,6 @@ Choose between different MediaPipe models for performance vs accuracy:
 - **pose_landmarker_lite.task**: Fastest, lower accuracy
 - **pose_landmarker_full.task**: Balanced performance (default)
 - **pose_landmarker_heavy.task**: Highest accuracy, slower
-
-## 🔧 Usage
-
-### Basic Demo
-
-Run the main application to start real-time pose detection demo. The application will initialize the camera and pose detector, then display a live feed with pose landmarks overlaid on the video.
-
-### Programmatic Access
-
-The application is modular - you can use individual components like `PoseDetector`, `LandmarkExtractor`, and `CameraManager` in your own projects for custom posture monitoring solutions.
 
 ## 📊 Metrics
 

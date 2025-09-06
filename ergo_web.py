@@ -117,6 +117,9 @@ with st.sidebar:
     st.markdown("### Posture")
     posture_status_placeholder = st.empty()
     alerts_placeholder = st.empty()
+    # New: history of posture issues (persistent counters)
+    st.markdown("### Posture Issue History")
+    posture_history_placeholder = st.empty()
     st.markdown("---")
     st.markdown("### Metrics (raw)")
     metrics_placeholder = st.empty()
@@ -201,6 +204,18 @@ class _VideoProcessor(VideoTransformerBase):
         self._skip_toggle = False
         self.alerts = []
         self.baseline_progress = 0.0
+        # History counters for posture issue occurrences
+        self.issue_history = {
+            "neck_forward": 0,
+            "shoulder_raised": 0,
+            "face_too_close": 0,
+        }
+        # Track last alert timestamp per condition to allow repeated reminders
+        self._last_issue_alert_ts = {
+            "neck_forward": 0.0,
+            "shoulder_raised": 0.0,
+            "face_too_close": 0.0,
+        }
 
     def reset_calibration(self):
         self.calibration.reset()
@@ -248,6 +263,10 @@ class _VideoProcessor(VideoTransformerBase):
             }
             triggers = self.timer_manager.update(flags, now_sec)
             if triggers:
+                # Update history counters and allow repeated reminders (ignore AlertSystem cooldown for counting)
+                for cond in triggers:
+                    if cond in self.issue_history:
+                        self.issue_history[cond] += 1
                 self.alerts.extend(self.alert_system.process(triggers, now_sec))
         if self.posture_result:
             metrics["posture_status"] = self.posture_result.overall
@@ -328,6 +347,21 @@ def render_posture_status(vp):
     )
 
 
+def _render_posture_history(vp):
+    # Build a concise markdown table of issue counts
+    rows = []
+    mapping = {
+        "neck_forward": "Neck Forward",
+        "shoulder_raised": "Shoulder Raised",
+        "face_too_close": "Face Too Close",
+    }
+    for key, label in mapping.items():
+        count = vp.issue_history.get(key, 0)
+        rows.append(f"- **{label}**: {count}")
+    posture_history_placeholder.markdown("\n".join(rows) if rows else "No issues yet.")
+    return rows
+
+
 def process_new_alerts(vp):
     if "alerts_shown" not in st.session_state:
         st.session_state["alerts_shown"] = 0
@@ -354,6 +388,8 @@ def process_new_alerts(vp):
         ts = datetime.fromtimestamp(a["timestamp"]).strftime("%H:%M:%S")
         lines.append(f"[{ts}] {a['message']}")
     alerts_placeholder.write("\n".join(lines))
+    # Update posture history each cycle after processing alerts
+    _render_posture_history(vp)
 
 
 def update_metrics_display(vp):
@@ -373,6 +409,8 @@ def main_loop(vp):
             last_reset_placeholder.write(f"Last reset at: {st.session_state['calibration_reset_at']}")
         render_posture_status(vp)
         process_new_alerts(vp)
+        # Refresh posture history even if no new alerts
+        _render_posture_history(vp)
         time.sleep(0.25)
 
 

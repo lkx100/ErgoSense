@@ -4,8 +4,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
-    git \
-    ffmpeg \
     libgl1 \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
@@ -17,13 +15,16 @@ WORKDIR /app
 
 # Copy app code after deps to maximize cache
 # COPY pyproject.toml uv.lock* /app/
-COPY . /app
-RUN /usr/local/bin/uv sync
+COPY pyproject.toml uv.lock /app/
+RUN /usr/local/bin/uv sync --no-dev  # --no-dev to avoid installing dev dependencies
+
+COPY . .
 
 # Non-root user (best practice)
-RUN useradd -m ergo && chown -R ergo:ergo /app
-USER ergo
+# RUN useradd -m ergo && chown -R ergo:ergo /app
+# USER ergo
 
 EXPOSE 8501
 ENV PYTHONPATH=/app
+
 CMD ["/usr/local/bin/uv", "run", "streamlit", "run", "ergo_web.py", "--server.port=8501", "--server.address=0.0.0.0"]

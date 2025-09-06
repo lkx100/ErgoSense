@@ -5,3 +5,5 @@
 .DS_Store
 test.ipynb
 test.py
+
+models/pose_landmarker_heavy.task

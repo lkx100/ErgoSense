@@ -92,7 +92,7 @@ class AlertConfig:
         window_seconds: Size of the rolling time window used for global limiting.
         deduplicate_in_window: If True, the same condition will not appear twice in the window.
     """
-    default_cooldown: float = 90.0
+    default_cooldown: float = 5.0   # 5 sec default
     max_alerts_per_window: Optional[int] = None
     window_seconds: float = 300.0
     deduplicate_in_window: bool = False
