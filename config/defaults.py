@@ -4,24 +4,24 @@ Default configuration values for ErgoSense
 
 # Posture thresholds (multipliers of baseline values)
 POSTURE_THRESHOLDS = {
-    'neck_forward_threshold': 1.3,  # 30% increase in ear-shoulder distance
-    'shoulder_raised_threshold': 0.8,  # 20% decrease in shoulder-nose distance  
-    'face_too_close_threshold': 1.2,  # 20% increase in face size (closer to screen)
+    'neck_forward_threshold': 1.2,  # 20% increase in ear-shoulder distance
+    'shoulder_raised_threshold': 0.85,  # 15% decrease in shoulder-nose distance  
+    'face_too_close_threshold': 1.15,  # 15% increase in face size (closer to screen)
 }
 
 # Timing settings (seconds)
 TIMING_SETTINGS = {
-    'calibration_duration': 5,  # default 5 sec
-    'neck_posture_alert_delay': 5,  # default 30 sec
-    'shoulder_posture_alert_delay': 5,  # default 30 sec
-    'screen_distance_alert_delay': 5,  # default 10 sec
-    'eye_break_reminder_interval': 1200,  # default 20 minutes
+    'calibration_duration': 3,  # default 5 sec
+    'neck_posture_alert_delay': 2,  # default 30 sec
+    'shoulder_posture_alert_delay': 2,  # default 30 sec
+    'screen_distance_alert_delay': 2,  # default 10 sec
+    'eye_break_reminder_interval': 300,  # default 20 minutes(1200 sec)
 }
 
 # Camera settings
 CAMERA_SETTINGS = {
     'camera_id': 0,
-    'target_fps': 30,
+    'target_fps': 15,  # Reduced from 30 for better performance
 }
 
 # MediaPipe model settings

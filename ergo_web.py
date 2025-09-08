@@ -15,8 +15,17 @@ import time
 from datetime import datetime
 import html
 import av
+import logging
+import os
 from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoTransformerBase
 from config.defaults import POSTURE_THRESHOLDS, TIMING_SETTINGS, ALERT_MESSAGES
+
+# Configure logging to suppress MediaPipe feedback tensor warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow logging
+logging.getLogger().setLevel(logging.ERROR)  # Set root logger to ERROR
+logging.getLogger("mediapipe").setLevel(logging.ERROR)
+logging.getLogger("mediapipe.python").setLevel(logging.ERROR)
+logging.getLogger("tensorflow").setLevel(logging.ERROR)
 
 from core.processing import process_frame
 from core.calibration import CalibrationSession, CalibrationConfig
@@ -27,6 +36,11 @@ from monitoring.alert_system import AlertSystem, AlertConfig
 st.set_page_config(page_title="ErgoSense", layout="wide")
 st.title("ErgoSense — Browser Demo v0.4 (live)")
 st.caption("Webcam processing runs locally in your browser/container. No cloud upload.")
+
+# Performance settings in sidebar
+st.sidebar.markdown("### ⚙️ Performance Settings")
+low_cpu_mode = st.sidebar.checkbox("Enable Low-CPU Mode", value=True,
+    help="Reduces processing load and updates. Recommended for longer sessions.")
 
 # ---------------------------
 # Browser Notification Script
@@ -400,18 +414,28 @@ def update_metrics_display(vp):
 
 
 def main_loop(vp):
-    # Reduced complexity: each concern delegated to helper
+    # Reduced complexity and update frequency
+    update_interval = 0.5  # Reduced from 0.25 for better performance
+    last_update = 0
     while ctx.state.playing:
-        vp.show_overlay = overlay_flag
-        update_metrics_display(vp)
-        render_calibration(vp)
-        if "calibration_reset_at" in st.session_state and st.session_state["calibration_reset_at"]:
-            last_reset_placeholder.write(f"Last reset at: {st.session_state['calibration_reset_at']}")
-        render_posture_status(vp)
-        process_new_alerts(vp)
-        # Refresh posture history even if no new alerts
-        _render_posture_history(vp)
-        time.sleep(0.25)
+        current_time = time.time()
+        if current_time - last_update >= update_interval:
+            vp.show_overlay = overlay_flag
+            update_metrics_display(vp)
+            
+            # Less frequent updates for non-critical UI
+            if current_time - last_update >= 1.0:  # 1-second interval for these
+                render_calibration(vp)
+                if "calibration_reset_at" in st.session_state and st.session_state["calibration_reset_at"]:
+                    last_reset_placeholder.write(f"Last reset at: {st.session_state['calibration_reset_at']}")
+                _render_posture_history(vp)
+            
+            # Keep posture status and alerts more responsive
+            render_posture_status(vp)
+            process_new_alerts(vp)
+            
+            last_update = current_time
+        time.sleep(0.1)  # Shorter sleep but less frequent updates
 
 
 # ---------------------------

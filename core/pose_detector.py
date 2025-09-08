@@ -3,10 +3,12 @@ MediaPipe-based pose detection for ErgoSense
 """
 import os
 
-# Suppress verbose C++ / framework logs (GLOG_minloglevel: 0=INFO,1=WARNING,2=ERROR,3=FATAL)
-os.environ.setdefault("GLOG_minloglevel", "2")
-# TensorFlow-style log level if any TF components are indirectly used
-os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+# Suppress verbose C++ / framework logs
+os.environ.setdefault("GLOG_minloglevel", "2")  # 0=INFO,1=WARNING,2=ERROR,3=FATAL
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")  # TensorFlow logging
+# Suppress Metal framework feedback warnings on macOS
+os.environ.setdefault("MEDIAPIPE_DISABLE_GPU", "1")  # Force CPU inference
+os.environ.setdefault("METAL_DEVICE_WRAPPER_TYPE", "1")  # Disable Metal validation
 
 import cv2 as cv
 import mediapipe as mp

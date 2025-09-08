@@ -127,10 +127,18 @@ Choose between different MediaPipe models for performance vs accuracy:
 
 ErgoSense analyzes the following posture metrics:
 
-- **Ear-Shoulder Distance**: Measures forward head posture
-- **Shoulder Height**: Detects shoulder elevation/hunching
-- **Head Tilt**: Monitors head alignment
-- **Face Size**: Estimates distance from screen
+- **Ear-Shoulder Distance**: 
+   - Measures forward head posture
+   - Calculates horizontal distance between ears and shoulders
+- **Shoulder Height**: 
+   - Detects shoulder elevation/hunching
+   - Calculates vertical distance between nose and shoulders
+- **Face Size**: 
+   - Estimates distance from screen
+   - Calculates face bounding box dimensions
+- **Head Tilt**: 
+   - Monitors head alignment
+   - Calculates angle between neck and spine
 
 ## 🤝 Contributing
 

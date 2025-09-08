@@ -337,10 +337,10 @@ def create_default_alert_system() -> AlertSystem:
     # Map older naming to new consistent keys if required
     # (You can customize externally if you prefer direct key parity).
     cooldowns = {
-        "neck_forward": 120.0,
-        "shoulders_raised": 120.0,
-        "too_close_to_screen": 90.0,
-        "eye_break_reminder": 1200.0,
+        "neck_forward": 30.0,   # default 120 sec
+        "shoulders_raised": 30.0,   # default 90 sec
+        "too_close_to_screen": 20.0,   # default 60 sec
+        "eye_break_reminder": 300.0,   # default 1200 sec(20 mins)
     }
 
     # The ALERT_MESSAGES keys in defaults may differ (e.g., 'shoulders_raised'),
@@ -351,9 +351,9 @@ def create_default_alert_system() -> AlertSystem:
         severities=default_severities,
         cooldowns=cooldowns,
         config=AlertConfig(
-            default_cooldown=120.0,
-            max_alerts_per_window=10,
-            window_seconds=600.0,
-            deduplicate_in_window=False,
+            default_cooldown=5.0,   # 120 sec default
+            max_alerts_per_window=5,  # default 10 alerts
+            window_seconds=300.0,    # 10 min window
+            deduplicate_in_window=True, # default False
         ),
     )
