@@ -61,10 +61,10 @@ class CalibrationConfig:
                       once warmup_min samples have been collected.
         metrics_of_interest: Tuple of metric keys expected in the per-frame metrics dict.
     """
-    duration_sec: float = 2.0
-    min_samples: int = 30
-    warmup_min: int = 3
-    reject_sigma: float = 2.5
+    duration_sec: float = 1.5
+    min_samples: int = 15  # Reduced from 30
+    warmup_min: int = 2    # Reduced from 3
+    reject_sigma: float = 3.0  # Slightly more permissive
     metrics_of_interest: tuple[str, ...] = (
         "ear_shoulder_distance",
         "shoulder_nose_distance",
