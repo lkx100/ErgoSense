@@ -39,7 +39,7 @@ Extensibility:
 
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 import math
 
 
@@ -60,16 +60,23 @@ class CalibrationConfig:
         reject_sigma: Z-score threshold (in standard deviations) for outlier rejection
                       once warmup_min samples have been collected.
         metrics_of_interest: Tuple of metric keys expected in the per-frame metrics dict.
+        motion_threshold: Maximum allowed change in metrics between frames to consider
+                         the user stable (prevents sample rejection during movement).
+        motion_pause_frames: Number of consecutive frames with motion before pausing calibration.
+        motion_resume_frames: Number of consecutive stable frames before resuming calibration.
     """
     duration_sec: float = 1.5
-    min_samples: int = 15  # Reduced from 30
-    warmup_min: int = 2    # Reduced from 3
+    min_samples: int = 15    # Reduced from 30
+    warmup_min: int = 2      # Reduced from 3
     reject_sigma: float = 3.0  # Slightly more permissive
     metrics_of_interest: tuple[str, ...] = (
         "ear_shoulder_distance",
         "shoulder_nose_distance",
         "face_size",
     )
+    motion_threshold: float = 0.05  # 5% change threshold for motion detection
+    motion_pause_frames: int = 5    # Frames of motion before pause
+    motion_resume_frames: int = 10  # Frames of stability before resume
 
     def validate(self):
         if self.duration_sec <= 0:
@@ -95,6 +102,10 @@ class CalibrationState:
         means: Running means per metric.
         m2: Sum of squares of differences from the running mean (Welford) per metric.
         complete: Flag indicating calibration completion.
+        paused: Whether calibration is currently paused due to motion.
+        last_metrics: Previous frame's metrics for motion detection.
+        motion_frames: Consecutive frames with detected motion.
+        stable_frames: Consecutive frames without detected motion.
     """
     started_at: Optional[float] = None
     samples_total: int = 0
@@ -102,6 +113,10 @@ class CalibrationState:
     means: Dict[str, float] = field(default_factory=dict)
     m2: Dict[str, float] = field(default_factory=dict)
     complete: bool = False
+    paused: bool = False
+    last_metrics: Optional[Dict[str, float]] = None
+    motion_frames: int = 0
+    stable_frames: int = 0
 
 
 # ----------------------------
@@ -182,6 +197,67 @@ class CalibrationSession:
             return float("nan")
         return math.sqrt(self.state.m2[key] / (n - 1))
 
+    def _detect_motion(self, current_metrics: Dict[str, float]) -> bool:
+        """
+        Detect if user is moving by comparing current metrics to previous frame.
+        Returns True if motion detected (user is moving).
+        """
+        if self.state.last_metrics is None:
+            self.state.last_metrics = dict(current_metrics)
+            return False
+
+        # Calculate relative change for each metric
+        max_change = 0.0
+        for key in self.config.metrics_of_interest:
+            if key in current_metrics and key in self.state.last_metrics:
+                prev_val = self.state.last_metrics[key]
+                curr_val = current_metrics[key]
+                if prev_val > 0:  # Avoid division by zero
+                    change = abs(curr_val - prev_val) / prev_val
+                    max_change = max(max_change, change)
+
+        # Update last metrics for next comparison
+        self.state.last_metrics = dict(current_metrics)
+
+        # Return True if motion exceeds threshold
+        return max_change > self.config.motion_threshold
+
+    def _is_user_present(self, metrics: Dict[str, float]) -> bool:
+        """
+        Check if user is present by verifying we have valid pose metrics.
+        Returns True if user is detected and metrics are available.
+        """
+        # Check if status indicates successful detection
+        status = metrics.get("status", "")
+        if status in ["no_landmarks", "pose_detector_unavailable", "processing_error"]:
+            return False
+
+        # Check if we have at least one valid metric
+        for key in self.config.metrics_of_interest:
+            if key in metrics and self._is_usable_number(metrics[key]):
+                return True
+
+        return False
+
+    def _update_motion_state(self, motion_detected: bool) -> None:
+        """
+        Update motion tracking state and pause/resume calibration accordingly.
+        """
+        if motion_detected:
+            self.state.motion_frames += 1
+            self.state.stable_frames = 0
+
+            # Pause calibration if motion persists
+            if self.state.motion_frames >= self.config.motion_pause_frames and not self.state.paused:
+                self.state.paused = True
+        else:
+            self.state.stable_frames += 1
+            self.state.motion_frames = 0
+
+            # Resume calibration if stable for enough frames
+            if self.state.stable_frames >= self.config.motion_resume_frames and self.state.paused:
+                self.state.paused = False
+
     # ---- Core Update Logic ----
 
     def update(self, metrics: Dict[str, float], now: float) -> bool:
@@ -190,6 +266,14 @@ class CalibrationSession:
 
         Returns:
             True if at least one metric was accepted, False otherwise.
+
+        Motion Detection:
+            - Detects user movement and pauses calibration during motion to prevent
+              sample rejection and speed up calibration when user is stable.
+
+        User Presence:
+            - Pauses calibration when user is not detected (no landmarks)
+            - Resumes when user returns
 
         Outlier Rejection:
             - If a metric has at least warmup_min samples, a new value whose
@@ -200,6 +284,22 @@ class CalibrationSession:
               or if forced externally.
         """
         if not self.is_started() or self.state.complete:
+            return False
+
+        # Check if user is present (has valid landmarks)
+        user_present = self._is_user_present(metrics)
+
+        # If user is not present, pause calibration completely
+        if not user_present:
+            self.state.paused = True
+            return False
+
+        # Check for motion and update pause state
+        motion_detected = self._detect_motion(metrics)
+        self._update_motion_state(motion_detected)
+
+        # If calibration is paused due to motion, don't process samples
+        if self.state.paused:
             return False
 
         accepted_any = False
@@ -226,10 +326,30 @@ class CalibrationSession:
         if accepted_any:
             self.state.samples_total += 1
 
-        if self._time_elapsed(now) >= self.config.duration_sec and self._all_metrics_satisfied():
+        if self._should_complete(now):
             self.state.complete = True
 
         return accepted_any
+
+    def _should_complete(self, now: float) -> bool:
+        """
+        Determine if calibration should complete. More flexible than requiring both time AND samples.
+        Completes when:
+        - Time elapsed >= duration_sec AND at least some samples collected, OR
+        - All metrics have sufficient samples (early completion)
+        """
+        elapsed = self._time_elapsed(now)
+
+        # Require minimum time to avoid premature completion
+        if elapsed < max(1.0, self.config.duration_sec * 0.3):  # At least 30% of duration or 1 second
+            return False
+
+        # Complete if time is up and we have samples for all metrics (even if below min_samples)
+        if elapsed >= self.config.duration_sec:
+            return all(self.state.accepted_per_metric.get(key, 0) > 0 for key in self.config.metrics_of_interest)
+
+        # Complete early if all metrics have sufficient samples
+        return self._all_metrics_satisfied()
 
     # ---- Completion & Progress ----
 
@@ -273,16 +393,58 @@ class CalibrationSession:
 
         return max(0.0, min(1.0, 0.5 * t_fraction + 0.5 * sample_fraction))
 
+    def get_status(self, now: float) -> Dict[str, Any]:
+        """
+        Get detailed calibration status including pause information for UI feedback.
+        """
+        if not self.is_started():
+            return {"state": "not_started", "progress": 0.0}
+
+        if self.state.complete:
+            return {"state": "complete", "progress": 1.0}
+
+        progress = self.get_progress(now)
+        elapsed = self._time_elapsed(now)
+
+        if self.state.paused:
+            return {
+                "state": "paused",
+                "progress": progress,
+                "reason": "motion_detected" if self.state.motion_frames > 0 else "user_not_present",
+                "elapsed_sec": elapsed,
+                "stable_frames": self.state.stable_frames,
+                "resume_threshold": self.config.motion_resume_frames
+            }
+
+        return {
+            "state": "active",
+            "progress": progress,
+            "elapsed_sec": elapsed,
+            "samples_total": self.state.samples_total
+        }
+
     # ---- Retrieval ----
 
     def get_baseline(self) -> Optional[Dict[str, float]]:
         """
-        Return baseline means if calibration is complete (time+samples) OR
-        all metrics have satisfied minimum sample counts (early completion condition).
+        Return baseline means if calibration has collected sufficient data.
+        More flexible than requiring perfect completion - allows baseline when
+        we have reasonable samples for most metrics.
         """
-        if not (self.state.complete or self._all_metrics_satisfied()):
+        if not self.is_started():
             return None
-        return {k: self.state.means[k] for k in self.config.metrics_of_interest if k in self.state.means}
+
+        # Require at least some samples for each metric
+        available_metrics = []
+        for key in self.config.metrics_of_interest:
+            if self.state.accepted_per_metric.get(key, 0) >= max(3, self.config.min_samples // 3):
+                available_metrics.append(key)
+
+        # Need at least 2 metrics with sufficient samples
+        if len(available_metrics) < 2:
+            return None
+
+        return {k: self.state.means[k] for k in available_metrics if k in self.state.means}
 
     def get_stats(self) -> Dict[str, Dict[str, float]]:
         """

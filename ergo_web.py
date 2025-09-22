@@ -67,6 +67,12 @@ st.sidebar.markdown("### 🔔 Alert Settings")
 enable_sound = st.sidebar.checkbox("Enable Sound Alerts", value=True,
     help="Play sound when posture needs attention (works across tabs)")
 
+st.sidebar.markdown("### 📊 Performance")
+low_cpu_mode = st.sidebar.checkbox("Low CPU Mode", value=False,
+    help="Reduce frame processing to improve performance on slower systems")
+show_performance = st.sidebar.checkbox("Show Performance Metrics", value=False,
+    help="Display frame rate, latency, and processing stats")
+
 # Sound alert component
 ALERT_SOUND = """
 <script>
@@ -264,7 +270,6 @@ with st.sidebar:
         help="Ideal resolution request (browser may negotiate down)."
     )
     res_w, res_h = (int(x) for x in resolution_option.split("x"))
-    low_cpu_mode_sidebar = st.checkbox("Low CPU mode (skip alternate frames)", value=False)
     st.markdown("---")
     st.markdown("### Calibration")
     baseline_status_placeholder = st.empty()
@@ -280,6 +285,8 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### Metrics (raw)")
     metrics_placeholder = st.empty()
+    st.markdown("### Performance")
+    perf_placeholder = st.empty()
 
 
 # ---------------------------
@@ -330,10 +337,22 @@ class _VideoProcessor(VideoTransformerBase):
         self._frame_count = 0
         self._last_time = cv.getTickCount()
         self.show_overlay = True
+
+        # Performance monitoring for adaptive frame skipping
+        self._latency_history = []
+        self._skip_count = 0
+        self._process_count = 0
+        self._target_latency_ms = 50.0  # Target max latency per frame
+        self._adaptive_skip_rate = 0.0  # 0.0 = no skip, 1.0 = skip all
+
+        # User presence tracking for post-calibration
+        self._user_absent_frames = 0
+        self._user_absent_threshold = 30  # Reset calibration after 30 frames (~1 second at 30fps) without user
+
         self.calibration = CalibrationSession(
             CalibrationConfig(
                 duration_sec=TIMING_SETTINGS.get("calibration_duration", 5),
-                min_samples=75,
+                min_samples=30,  # Reduced from 75 for faster calibration
             )
         )
         self.analyzer = PostureAnalyzer(POSTURE_THRESHOLDS)
@@ -381,6 +400,46 @@ class _VideoProcessor(VideoTransformerBase):
         self.baseline_progress = 0.0
         self.timer_manager.clear_all()
 
+    def _update_performance_metrics(self, latency_ms: float):
+        """Update performance tracking with latest frame latency."""
+        self._latency_history.append(latency_ms)
+        # Keep only last 10 measurements for rolling average
+        if len(self._latency_history) > 10:
+            self._latency_history.pop(0)
+
+        # Calculate adaptive skip rate based on recent performance
+        if len(self._latency_history) >= 3:
+            avg_latency = sum(self._latency_history) / len(self._latency_history)
+            if avg_latency > self._target_latency_ms:
+                # Increase skip rate when latency is high
+                self._adaptive_skip_rate = min(0.8, self._adaptive_skip_rate + 0.1)
+            elif avg_latency < self._target_latency_ms * 0.7:
+                # Decrease skip rate when performance is good
+                self._adaptive_skip_rate = max(0.0, self._adaptive_skip_rate - 0.05)
+
+    def _should_skip_frame(self) -> bool:
+        """Determine if current frame should be skipped based on performance."""
+        if not self.low_cpu_mode:
+            return False
+
+        # Use adaptive skipping based on performance
+        if self._adaptive_skip_rate > 0:
+            # Probabilistic skipping based on adaptive rate
+            import random
+            return random.random() < self._adaptive_skip_rate
+
+        # Fallback to simple alternating skip
+        self._skip_toggle = not self._skip_toggle
+        return self._skip_toggle
+
+    def _is_user_present(self, metrics: dict) -> bool:
+        """Check if user is present based on processing metrics."""
+        status = metrics.get("status", "")
+        # User is present if we have successful pose detection
+        return status == "ok" and any(
+            key in metrics for key in ["ear_shoulder_distance", "shoulder_nose_distance", "face_size"]
+        )
+
     def _update_fps(self, metrics: dict):
         self._frame_count += 1
         if self._frame_count % 10 == 0:
@@ -392,50 +451,130 @@ class _VideoProcessor(VideoTransformerBase):
 
     def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
         bgr = frame.to_ndarray(format="bgr24")
-        if self.low_cpu_mode:
-            self._skip_toggle = not self._skip_toggle
-            if self._skip_toggle:
-                return av.VideoFrame.from_ndarray(bgr, format="bgr24")
+
+        # Smart frame skipping based on performance
+        if self._should_skip_frame():
+            self._skip_count += 1
+            return av.VideoFrame.from_ndarray(bgr, format="bgr24")
+
+        self._process_count += 1
         t0 = cv.getTickCount()
-        annotated_bgr, processed = process_frame(bgr)
+
+        try:
+            annotated_bgr, processed = process_frame(bgr)
+        except Exception as e:
+            # If processing fails completely, return original frame with error metrics
+            print(f"[ErgoSense] Frame processing failed: {e}")
+            processed = {"status": "frame_processing_error", "error": str(e)}
+            annotated_bgr = bgr
+
         t1 = cv.getTickCount()
         elapsed_ms = (t1 - t0) / cv.getTickFrequency() * 1000.0
+
+        # Update performance tracking
+        self._update_performance_metrics(elapsed_ms)
+
         metrics = {**(processed or {}), "latency_ms": round(elapsed_ms, 2)}
         self._update_fps(metrics)
+
+        # Add performance metrics
+        total_frames = self._skip_count + self._process_count
+        if total_frames > 0:
+            metrics["skip_rate"] = round(self._skip_count / total_frames, 2)
+            metrics["adaptive_skip_rate"] = round(self._adaptive_skip_rate, 2)
+
         now_sec = time.time()
-        if not self.calibration.is_started():
-            self.calibration.start(now_sec)
-        if not self.calibration.is_complete(now_sec):
-            self.calibration.update(metrics, now_sec)
-            self.baseline_progress = self.calibration.get_progress(now_sec)
-        else:
-            self.baseline_progress = 1.0
-        baseline = self.calibration.get_baseline()
-        self.posture_result = self.analyzer.analyze(metrics, baseline)
-        if baseline:
-            flags = {
-                "neck_forward": self.posture_result.neck_forward,
-                "shoulder_raised": self.posture_result.shoulder_raised,
-                "face_too_close": self.posture_result.face_too_close,
-            }
-            triggers = self.timer_manager.update(flags, now_sec)
-            if triggers:
-                # Update history counters and allow repeated reminders (ignore AlertSystem cooldown for counting)
-                for cond in triggers:
-                    if cond in self.issue_history:
-                        self.issue_history[cond] += 1
-                self.alerts.extend(self.alert_system.process(triggers, now_sec))
-        if self.posture_result:
-            metrics["posture_status"] = self.posture_result.overall
-            metrics.update({
-                "neck_forward": self.posture_result.neck_forward,
-                "shoulder_raised": self.posture_result.shoulder_raised,
-                "face_too_close": self.posture_result.face_too_close,
-            })
-            for rk, rv in self.posture_result.ratios.items():
-                metrics[f"ratio_{rk}"] = round(rv, 4) if isinstance(rv, (int, float)) else rv
-        else:
-            metrics["posture_status"] = "Calibrating"
+
+        try:
+            if not self.calibration.is_started():
+                # Only start calibration if user is present
+                if self._is_user_present(metrics):
+                    self.calibration.start(now_sec)
+                else:
+                    # User not present, don't start calibration yet
+                    self.baseline_progress = 0.0
+
+            if self.calibration.is_started() and not self.calibration.is_complete(now_sec):
+                self.calibration.update(metrics, now_sec)
+                self.baseline_progress = self.calibration.get_progress(now_sec)
+                # Reset user absent counter when actively calibrating
+                self._user_absent_frames = 0
+            elif self.calibration.is_complete(now_sec):
+                self.baseline_progress = 1.0
+                # Check for user presence after calibration is complete
+                user_present = self._is_user_present(metrics)
+                if user_present:
+                    self._user_absent_frames = 0
+                else:
+                    self._user_absent_frames += 1
+                    # Reset calibration if user has been absent too long
+                    if self._user_absent_frames >= self._user_absent_threshold:
+                        print(f"[ErgoSense] User absent for {self._user_absent_frames} frames, resetting calibration")
+                        self.reset_calibration()
+                        # Don't start calibration immediately - wait for user to return
+                        self.baseline_progress = 0.0
+        except Exception as e:
+            print(f"[ErgoSense] Calibration error: {e}")
+            self.baseline_progress = 0.0
+
+        try:
+            baseline = self.calibration.get_baseline()
+            # Only analyze posture if we have a baseline and user is present
+            if baseline and self._is_user_present(metrics):
+                self.posture_result = self.analyzer.analyze(metrics, baseline)
+            else:
+                self.posture_result = None
+        except Exception as e:
+            print(f"[ErgoSense] Posture analysis error: {e}")
+            self.posture_result = None
+
+        try:
+            # Only process alerts if we have posture results (implies user is present and calibrated)
+            if baseline and self.posture_result:
+                flags = {
+                    "neck_forward": self.posture_result.neck_forward,
+                    "shoulder_raised": self.posture_result.shoulder_raised,
+                    "face_too_close": self.posture_result.face_too_close,
+                }
+                triggers = self.timer_manager.update(flags, now_sec)
+                if triggers:
+                    # Update history counters and allow repeated reminders (ignore AlertSystem cooldown for counting)
+                    for cond in triggers:
+                        if cond in self.issue_history:
+                            self.issue_history[cond] += 1
+                    self.alerts.extend(self.alert_system.process(triggers, now_sec))
+        except Exception as e:
+            print(f"[ErgoSense] Alert processing error: {e}")
+
+        # Safe posture result handling
+        try:
+            user_present = self._is_user_present(metrics)
+            calibration_complete = self.calibration.is_complete(time.time())
+
+            if calibration_complete and not user_present:
+                # User has left after calibration - show appropriate status
+                metrics["posture_status"] = "User not detected"
+                # Clear posture flags when user is not present
+                metrics.update({
+                    "neck_forward": False,
+                    "shoulder_raised": False,
+                    "face_too_close": False,
+                })
+            elif self.posture_result:
+                metrics["posture_status"] = self.posture_result.overall
+                metrics.update({
+                    "neck_forward": self.posture_result.neck_forward,
+                    "shoulder_raised": self.posture_result.shoulder_raised,
+                    "face_too_close": self.posture_result.face_too_close,
+                })
+                for rk, rv in self.posture_result.ratios.items():
+                    metrics[f"ratio_{rk}"] = round(rv, 4) if isinstance(rv, (int, float)) else rv
+            else:
+                metrics["posture_status"] = "Calibrating"
+        except Exception as e:
+            print(f"[ErgoSense] Posture result processing error: {e}")
+            metrics["posture_status"] = "Error"
+
         self.metrics = metrics
         return av.VideoFrame.from_ndarray(annotated_bgr if self.show_overlay else bgr, format="bgr24")
 
@@ -487,17 +626,46 @@ def render_visual_chips(metrics: dict):
 
 
 def render_calibration(vp):
-    if vp.calibration.is_complete(time.time()):
+    status = vp.calibration.get_status(time.time())
+    if status["state"] == "complete":
         baseline_status_placeholder.write("Calibration: Complete")
-    else:
-        pct = f"{int(vp.baseline_progress * 100)}%"
+    elif status["state"] == "paused":
+        reason = status.get("reason", "motion_detected")
+        if reason == "user_not_present":
+            baseline_status_placeholder.write("Calibration: Paused (waiting for user)")
+        else:
+            stable_needed = status["resume_threshold"] - status["stable_frames"]
+            baseline_status_placeholder.write(f"Calibration: Paused (motion detected) - Hold still ({stable_needed} frames)")
+    elif status["state"] == "active":
+        pct = f"{int(status['progress'] * 100)}%"
         baseline_status_placeholder.write(f"Calibration: In progress ({pct})")
+    else:
+        # Check if user is present to determine if we should show "waiting" or "not started"
+        current_metrics = vp.metrics or {}
+        user_present = vp._is_user_present(current_metrics) if hasattr(vp, '_is_user_present') else False
+        if user_present:
+            baseline_status_placeholder.write("Calibration: Not started")
+        else:
+            baseline_status_placeholder.write("Calibration: Waiting for user")
 
 
 def render_posture_status(vp):
-    status = vp.posture_result.overall if vp.posture_result else "Calibrating"
-    colors = {"OK": "#2e7d32", "NeedsAttention": "#c62828", "Calibrating": "#f9a825"}
-    bg = colors.get(status, "#424242")
+    # Check if user is currently detected
+    current_metrics = vp.metrics or {}
+    user_present = vp._is_user_present(current_metrics) if hasattr(vp, '_is_user_present') else True
+    calibration_complete = vp.calibration.is_complete(time.time())
+
+    if calibration_complete and not user_present:
+        status = "User not detected"
+        bg = "#757575"  # Gray color for user not detected
+    elif vp.posture_result:
+        status = vp.posture_result.overall
+        colors = {"OK": "#2e7d32", "NeedsAttention": "#c62828", "Calibrating": "#f9a825"}
+        bg = colors.get(status, "#424242")
+    else:
+        status = "Calibrating"
+        bg = "#f9a825"
+
     posture_status_placeholder.markdown(
         f"<div style='padding:4px 8px;border-radius:4px;background:{bg};color:#fff;font-weight:600;'>Posture: {status}</div>",
         unsafe_allow_html=True
@@ -570,18 +738,28 @@ def main_loop(vp):
         if current_time - last_update >= update_interval:
             vp.show_overlay = overlay_flag
             update_metrics_display(vp)
-            
+
+            # Show performance metrics if enabled
+            if show_performance:
+                perf_metrics = {
+                    "fps": vp.metrics.get("fps", 0),
+                    "latency_ms": vp.metrics.get("latency_ms", 0),
+                    "skip_rate": vp.metrics.get("skip_rate", 0),
+                    "adaptive_skip": vp.metrics.get("adaptive_skip_rate", 0),
+                }
+                perf_placeholder.write(f"**Performance:** FPS: {perf_metrics['fps']}, Latency: {perf_metrics['latency_ms']}ms, Skip Rate: {perf_metrics['skip_rate']}, Adaptive: {perf_metrics['adaptive_skip']}")
+
             # Less frequent updates for non-critical UI
             if current_time - last_update >= 1.0:  # 1-second interval for these
                 render_calibration(vp)
                 if "calibration_reset_at" in st.session_state and st.session_state["calibration_reset_at"]:
                     last_reset_placeholder.write(f"Last reset at: {st.session_state['calibration_reset_at']}")
                 _render_posture_history(vp)
-            
+
             # Keep posture status and alerts more responsive
             render_posture_status(vp)
             process_new_alerts(vp)
-            
+
             last_update = current_time
         time.sleep(0.1)  # Shorter sleep but less frequent updates
 
@@ -591,7 +769,7 @@ def main_loop(vp):
 # ---------------------------
 if ctx.state.playing and ctx.video_processor:
     vp = ctx.video_processor
-    vp.low_cpu_mode = low_cpu_mode_sidebar
+    vp.low_cpu_mode = low_cpu_mode
     if "calibration_reset_at" not in st.session_state:
         st.session_state["calibration_reset_at"] = None
     if reset_clicked:

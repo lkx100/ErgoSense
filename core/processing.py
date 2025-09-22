@@ -98,6 +98,8 @@ def process_frame(image) -> Tuple[Any, Dict[str, Any]]:
     """
     Process a single BGR image and return (annotated_image, metrics).
 
+    Includes comprehensive error handling for graceful degradation.
+
     Complexity minimized by delegating discrete steps to helpers:
       1. Input validation
       2. Detector readiness
@@ -105,28 +107,48 @@ def process_frame(image) -> Tuple[Any, Dict[str, Any]]:
       4. Landmark detection
       5. Metric extraction + annotation
     """
-    if image is None:
-        return image, {"status": "no_input"}
-
-    if not _ensure_detector():
-        return image, {"status": "pose_detector_init_failed"}
-
-    rgb, err = _convert_bgr_to_rgb(image)
-    if err:
-        return image, err  # color conversion failed
-
-    landmarks, err = _detect_landmarks(_detector, rgb)
-    if err:  # includes no_landmarks case
-        metrics = err
-        metrics["timestamp"] = time.time()
-        return image, metrics
-
-    # Landmarks present: annotate + metrics
     try:
-        annotated = draw_landmarks_on_image(image, landmarks)
-    except Exception:
-        annotated = image  # fallback
+        if image is None:
+            return image, {"status": "no_input"}
 
-    metrics = _build_metrics_from_landmarks(landmarks)
-    metrics["timestamp"] = time.time()
-    return annotated, metrics
+        if not _ensure_detector():
+            return image, {"status": "pose_detector_init_failed"}
+
+        rgb, err = _convert_bgr_to_rgb(image)
+        if err:
+            return image, err  # color conversion failed
+
+        landmarks, err = _detect_landmarks(_detector, rgb)
+        if err:  # includes no_landmarks case
+            metrics = err
+            metrics["timestamp"] = time.time()
+            return image, metrics
+
+        # Landmarks present: annotate + metrics
+        try:
+            annotated = draw_landmarks_on_image(image, landmarks)
+        except Exception as e:
+            if DEBUG:
+                print(f"[ErgoSense] Landmark drawing failed: {e}")
+            annotated = image  # fallback to original image
+
+        try:
+            metrics = _build_metrics_from_landmarks(landmarks)
+        except Exception as e:
+            if DEBUG:
+                print(f"[ErgoSense] Metric extraction failed: {e}")
+            metrics = {"status": "metric_extraction_failed", "error": str(e)}
+
+        metrics["timestamp"] = time.time()
+        return annotated, metrics
+
+    except Exception as e:
+        # Catch-all for unexpected errors
+        if DEBUG:
+            print(f"[ErgoSense] Unexpected error in process_frame: {e}")
+        error_metrics = {
+            "status": "processing_error",
+            "error": str(e),
+            "timestamp": time.time()
+        }
+        return image, error_metrics
