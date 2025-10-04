@@ -6,12 +6,15 @@ Provides native OS notifications across platforms.
 import platform
 import os
 import subprocess
+from pathlib import Path
 from typing import Optional
 
 class SystemNotifier:
     def __init__(self):
         self.system = platform.system()
         self._check_requirements()
+        import logging
+        self.logger = logging.getLogger(__name__)
         
     def _check_requirements(self):
         """Check if system has required notification tools"""
@@ -34,10 +37,8 @@ class SystemNotifier:
         """
         try:
             if self.system == "Darwin":  # macOS
-                if not self.has_osascript:
-                    return False
-                cmd = f'''osascript -e 'display notification "{message}" with title "{title}"' '''
-                subprocess.run(cmd, shell=True, check=True)
+                script = f'display notification "{message}" with title "{title}"'
+                subprocess.run(['osascript', '-e', script], check=True)
                 return True
                 
             elif self.system == "Linux":
@@ -57,3 +58,27 @@ class SystemNotifier:
             return False
         
         return False  # Unsupported platform
+
+    def play_sound(self, sound_path: str | None):
+        """Play a short alert sound (macOS only for now).
+
+        Parameters
+        ----------
+        sound_path: Path to an audio file (wav / mp3 / aiff) accessible locally.
+                    If None or file missing, silently ignore.
+        """
+        if not sound_path:
+            return
+        try:
+            p = Path(sound_path)
+            if not p.exists():
+                self.logger.debug(f"Alert sound file not found: {sound_path}")
+                return
+            if self.system == 'Darwin':
+                # afplay auto-detects common formats
+                subprocess.Popen(['afplay', str(p)])
+            else:
+                # For future expansion: implement other platforms if desired
+                self.logger.debug("Sound playback not implemented for this platform")
+        except Exception as e:
+            self.logger.error(f"Failed to play sound: {e}")

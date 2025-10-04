@@ -50,6 +50,7 @@ from utils.system_notifier import SystemNotifier
 
 # Initialize system notifier
 system_notifier = SystemNotifier()
+ALERT_SOUND_FILE = "utils/sound-alert.mp3"
 
 st.set_page_config(page_title="ErgoSense", layout="wide")
 st.title("ErgoSense — Browser Demo v0.4 (live)")
@@ -58,14 +59,37 @@ st.caption("Webcam processing runs locally in your browser/container. No cloud u
 # Performance and Alert settings in sidebar
 st.sidebar.markdown("### ⚙️ Settings")
 st.sidebar.markdown("#### Alert Preferences")
-enable_system_notifications = st.sidebar.checkbox("Enable System Notifications", value=True,
-    help="Show notifications even when browser is minimized")
-enable_sound = st.sidebar.checkbox("Enable Sound Alerts", value=True,
-    help="Play sound for posture alerts")
-
-st.sidebar.markdown("### 🔔 Alert Settings")
-enable_sound = st.sidebar.checkbox("Enable Sound Alerts", value=True,
-    help="Play sound when posture needs attention (works across tabs)")
+enable_system_notifications = st.sidebar.checkbox(
+    "Enable System Notifications", value=True,
+    help="Use macOS native notifications (Notification Center)"
+)
+enable_overlay_alerts = st.sidebar.checkbox(
+    "Enable Overlay Popups", value=True,
+    help="Show small stacked overlay alerts (app-managed)"
+)
+enable_sound = st.sidebar.checkbox(
+    "Enable Sound Alerts", value=True,
+    help="Play a short chime for each posture alert (macOS only)"
+)
+test_alert = st.sidebar.button("Test Alert", help="Send a sample alert to verify notification + sound")
+st.sidebar.markdown("#### Alert Cooldowns")
+neck_cooldown = st.sidebar.slider(
+    "Neck & Shoulder repeat (s)", 3, 99, 12, 3,
+    help="Minimum seconds before repeating the SAME neck/shoulder alert"
+)
+face_cooldown = st.sidebar.slider(
+    "Screen Distance repeat (s)", 3, 99, 12, 3,
+    help="Minimum seconds before repeating the SAME screen distance alert"
+)
+if test_alert:
+    if enable_system_notifications:
+        try:
+            system_notifier.notify("ErgoSense Test", "This is a test posture alert")
+        except Exception:
+            pass
+    if enable_sound:
+        system_notifier.play_sound(ALERT_SOUND_FILE)
+    st.sidebar.success("Test alert dispatched")
 
 st.sidebar.markdown("### 📊 Performance")
 low_cpu_mode = st.sidebar.checkbox("Low CPU Mode", value=False,
@@ -73,172 +97,6 @@ low_cpu_mode = st.sidebar.checkbox("Low CPU Mode", value=False,
 show_performance = st.sidebar.checkbox("Show Performance Metrics", value=False,
     help="Display frame rate, latency, and processing stats")
 
-# Sound alert component
-ALERT_SOUND = """
-<script>
-const alertSound = new Audio("data:audio/wav;base64,//uQRAAAAWMSLwUIYAAsYkXgoQwAEaYLWfkWgAI0wWs/ItAAAGDgYtAgAyN+QWaAAihwMWm4G8QQRDiMcCBcH3Cc+CDv/7xA4Tvh9Rz/y8QADBwMWgQAZG/ILNAARQ4GLTcDeIIIhxGOBAuD7hOfBB3/94gcJ3w+o5/5eIAIAAAVwWgQAVQ2ORaIQwEMAJiDg95G4nQL7mQVWI6GwRcfsZAcsKkJvxgxEjzFUgfHoSQ9Qq7KNwqHwuB13MA4a1q/DmBrHgPcmjiGoh//EwC5nGPEmS4RcfkVKOhJf+WOgoxJclFz3kgn//dBA+ya1GhurNn8zb//9NNutNuhz31f////9vt///z+IdAEAAAK4LQIAKobHItEIYCGAExBwe8jcToF9zIKrEdDYIuP2MgOWFSE34wYiR5iqQPj0JIeoVdlG4VD4XA67mAcNa1fhzA1jwHuTRxDUQ//iYBczjHiTJcIuPyKlHQkv/LHQUYkuSi57yQT//uggfZNajQ3Vmz+Zt//+mm3Wm3Q576v////+32///5/EOgAAADVghQAAAAA//uQZAUAB1WI0PZugAAAAAoQwAAAEk3nRd2qAAAAACiDgAAAAAAABCqEEQRLCgwpBGMlJkIz8jKhGvj4k6jzRnqasNKIeoh5gI7BJaC1A1AoNBjJgbyApVS4IDlZgDU5WUAxEKDNmmALHzZp0Fkz1FMTmGFl1FMEyodIavcCAUHDWrKAIA4aa2oCgILEBupZgHvAhEBcZ6joQBxS76AgccrFlczBvKLC0QI2cBoCFvfTDAo7eoOQInqDPBtvrDEZBNYN5xwNwxQRfw8ZQ5wQVLvO8OYU+mHvFLlDh05Mdg7BT6YrRPpCBznMB2r//xKJjyyOh+cImr2/4doscwD6neZjuZR4AgAABYAAAABy1xcdQtxYBYYZdifkUDgzzXaXn98Z0oi9ILU5mBjFANmRwlVJ3/6jYDAmxaiDG3/6xjQQCCKkRb/6kg/wW+kSJ5//rLobkLSiKmqP/0ikJuDaSaSf/6JiLYLEYnW/+kXg1WRVJL/9EmQ1YZIsv/6Qzwy5qk7/+tEU0nkls3/zIUMPKNX/6yZLf+kFgAfgGyLFAUwY//uQZAUABcd5UiNPVXAAAApAAAAAE0VZQKw9ISAAACgAAAAAVQIygIElVrFkBS+Jhi+EAuu+lKAkYUEIsmEAEoMeDmCETMvfSHTGkF5RWH7kz/ESHWPAq/kcCRhqBtMdokPdM7vil7RG98A2sc7zO6ZvTdM7pmOUAZTnJW+NXxqmd41dqJ6mLTXxrPpnV8avaIf5SvL7pndPvPpndJR9Kuu8fePvuiuhorgWjp7Mf/PRjxcFCPDkW31srioCExivv9lcwKEaHsf/7ow2Fl1T/9RkXgEhYElAoCLFtMArxwivDJJ+bR1HTKJdlEoTELCIqgEwVGSQ+hIm0NbK8WXcTEI0UPoa2NbG4y2K00JEWbZavJXkYaqo9CRHS55FcZTjKEk3NKoCYUnSQ0rWxrZbFKbKIhOKPZe1cJKzZSaQrIyULHDZmV5K4xySsDRKWOruanGtjLJXFEmwaIbDLX0hIPBUQPVFVkQkDoUNfSoDgQGKPekoxeGzA4DUvnn4bxzcZrtJyipKfPNy5w+9lnXwgqsiyHNeSVpemw4bWb9psYeq//uQZBoABQt4yMVxYAIAAAkQoAAAHvYpL5m6AAgAACXDAAAAD59jblTirQe9upFsmZbpMudy7Lz1X1DYsxOOSWpfPqNX2WqktK0DMvuGwlbNj44TleLPQ+Gsfb+GOWOKJoIrWb3cIMeeON6lz2umTqMXV8Mj30yWPpjoSa9ujK8SyeJP5y5mOW1D6hvLepeveEAEDo0mgCRClOEgANv3B9a6fikgUSu/DmAMATrGx7nng5p5iimPNZsfQLYB2sDLIkzRKZOHGAaUyDcpFBSLG9MCQALgAIgQs2YunOszLSAyQYPVC2YdGGeHD2dTdJk1pAHGAWDjnkcLKFymS3RQZTInzySoBwMG0QueC3gMsCEYxUqlrcxK6k1LQQcsmyYeQPdC2YfuGPASCBkcVMQQqpVJshui1tkXQJQV0OXGAZMXSOEEBRirXbVRQW7ugq7IM7rPWSZyDlM3IuNEkxzCOJ0ny2ThNkyRai1b6ev//3dzNGzNb//4uAvHT5sURcZCFcuKLhOFs8mLAAEAt4UWAAIABAAAAAB4qbHo0tIjVkUU//uQZAwABfSFz3ZqQAAAAAngwAAAE1HjMp2qAAAAACZDgAAAD5UkTE1UgZEUExqYynN1qZvqIOREEFmBcJQkwdxiFtw0qEOkGYfRDifBui9MQg4QAHAqWtAWHoCxu1Yf4VfWLPIM2mHDFsbQEVGwyqQoQcwnfHeIkNt9YnkiaS1oizycqJrx4KOQjahZxWbcZgztj2c49nKmkId44S71j0c8eV9yDK6uPRzx5X18eDvjvQ6yKo9ZSS6l//8elePK/Lf//IInrOF/FvDoADYAGBMGb7FtErm5MXMlmPAJQVgWta7Zx2go+8xJ0UiCb8LHHdftWyLJE0QIAIsI+UbXu67dZMjmgDGCGl1H+vpF4NSDckSIkk7Vd+sxEhBQMRU8j/12UIRhzSaUdQ+rQU5kGeFxm+hb1oh6pWWmv3uvmReDl0UnvtapVaIzo1jZbf/pD6ElLqSX+rUmOQNpJFa/r+sa4e/pBlAABoAAAAA3CUgShLdGIxsY7AUABPRrgCABdDuQ5GC7DqPQCgbbJUAoRSUj+NIEig0YfyWUho1VBBBA//uQZB4ABZx5zfMakeAAAAmwAAAAF5F3P0w9GtAAACfAAAAAwLhMDmAYWMgVEG1U0FIGCBgXBXAtfMH10000EEEEEECUBYln03TTTdNBDZopopYvrTTdNa325mImNg3TTPV9q3pmY0xoO6bv3r00y+IDGid/9aaaZTGMuj9mpu9Mpio1dXrr5HERTZSmqU36A3CumzN/9Robv/Xx4v9ijkSRSNLQhAWumap82WRSBUqXStV/YcS+XVLnSS+WLDroqArFkMEsAS+eWmrUzrO0oEmE40RlMZ5+ODIkAyKAGUwZ3mVKmcamcJnMW26MRPgUw6j+LkhyHGVGYjSUUKNpuJUQoOIAyDvEyG8S5yfK6dhZc0Tx1KI/gviKL6qvvFs1+bWtaz58uUNnryq6kt5RzOCkPWlVqVX2a/EEBUdU1KrXLf40GoiiFXK///qpoiDXrOgqDR38JB0bw7SoL+ZB9o1RCkQjQ2CBYZKd/+VJxZRRZlqSkKiws0WFxUyCwsKiMy7hUVFhIaCrNQsKkTIsLivwKKigsj8XYlwt/WKi2N4d//uQRCSAAjURNIHpMZBGYiaQPSYyAAABLAAAAAAAACWAAAAApUF/Mg+0aohSIRobBAsMlO//Kk4soosy1JSFRYWaLC4qZBYWFRGZdwqKiwkNBVmoWFSJkWFxX4FFRQWR+LsS4W/rFRb/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////VEFHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAU291bmRib3kuZGUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMjAwNGh0dHA6Ly93d3cuc291bmRib3kuZGUAAAAAAAAAACU=");
-
-window.playAlertBeep = function() {
-    alertSound.play().catch(e => console.log('Sound play failed:', e));
-}
-</script>
-"""
-components.html(ALERT_SOUND, height=0)
-
-# ---------------------------
-# Browser Notification Scripts
-# ---------------------------
-SERVICE_WORKER = """
-// ergosense-sw.js
-self.addEventListener('install', (event) => {
-  self.skipWaiting();
-});
-
-self.addEventListener('activate', (event) => {
-  event.waitUntil(clients.claim());
-});
-
-self.addEventListener('push', (event) => {
-  const data = event.data.json();
-  const options = {
-    body: data.message,
-    icon: '/favicon.ico',
-    badge: '/favicon.ico',
-    tag: 'ergosense-notification',
-    renotify: true,
-    requireInteraction: false,
-    silent: false
-  };
-  event.waitUntil(
-    self.registration.showNotification('ErgoSense Alert', options)
-  );
-});
-"""
-
-# NOTIF_BOOTSTRAP = """
-# <script>
-# (function() {
-#   const ID = "ergosense-alert-hook";
-#   let swRegistration = null;
-#   let isNotificationEnabled = false;
-
-#   // Service Worker Registration
-#   async function registerServiceWorker() {
-#     if ('serviceWorker' in navigator && 'PushManager' in window) {
-#       try {
-#         // Create a Blob URL for the service worker
-#         const swBlob = new Blob([`${SERVICE_WORKER}`], { type: 'text/javascript' });
-#         const swUrl = URL.createObjectURL(swBlob);
-        
-#         swRegistration = await navigator.serviceWorker.register(swUrl, {
-#           scope: '.'
-#         });
-#         console.log('ServiceWorker registered');
-        
-#         // Cleanup Blob URL
-#         URL.revokeObjectURL(swUrl);
-        
-#         return true;
-#       } catch (error) {
-#         console.warn('ServiceWorker registration failed:', error);
-#         return false;
-#       }
-#     }
-#     return false;
-#   }
-
-#   // Initialize notification system
-#   async function initNotifications() {
-#     if (!("Notification" in window)) {
-#       console.warn("This browser does not support notifications");
-#       return;
-#     }
-
-#     // Request permission
-#     if (Notification.permission === "default") {
-#       const permission = await Notification.requestPermission();
-#       isNotificationEnabled = permission === "granted";
-#     } else {
-#       isNotificationEnabled = Notification.permission === "granted";
-#     }
-
-#     if (isNotificationEnabled) {
-#       await registerServiceWorker();
-#     }
-#   }
-
-#   // Enhanced notification function
-#   async function notify(msg, severity = 'info') {
-#     if (!isNotificationEnabled) return;
-
-#     try {
-#       // Fallback to regular notifications if service worker isn't available
-#       if (!swRegistration || !swRegistration.active) {
-#         const notification = new Notification("ErgoSense Alert", {
-#           body: msg,
-#           icon: '/favicon.ico',
-#           tag: 'ergosense-notification',
-#           renotify: true,
-#           requireInteraction: false,
-#           silent: false
-#         });
-        
-#         // Auto-close after 5 seconds for non-critical alerts
-#         if (severity !== 'critical') {
-#           setTimeout(() => notification.close(), 5000);
-#         }
-        
-#         return;
-#       }
-
-#       // Use service worker for more reliable notifications
-#       const data = { message: msg, severity };
-#       await swRegistration.active.postMessage(data);
-      
-#     } catch (error) {
-#       console.warn('Notification failed:', error);
-#     }
-#   }
-
-#   // Setup DOM hook
-#   function ensureHook() {
-#     let el = document.getElementById(ID);
-#     if (!el) {
-#       el = document.createElement("div");
-#       el.id = ID;
-#       el.setAttribute("data-alert-seq", "0");
-#       el.style.display = "none";
-#       document.body.appendChild(el);
-#     }
-#     return el;
-#   }
-
-#   // Initialize
-#   const hook = ensureHook();
-#   initNotifications();
-  
-#   // Observe for new alerts
-#   let lastSeq = "0";
-#   const obs = new MutationObserver(() => {
-#     const seq = hook.getAttribute("data-alert-seq");
-#     if (seq && seq !== lastSeq) {
-#       lastSeq = seq;
-#       const payload = hook.getAttribute("data-alert-msg");
-#       const severity = hook.getAttribute("data-alert-severity") || 'info';
-#       if (payload) {
-#         notify(payload, severity);
-#       }
-#     }
-#   });
-  
-#   obs.observe(hook, {
-#     attributes: true,
-#     attributeFilter: ["data-alert-seq", "data-alert-msg", "data-alert-severity"]
-#   });
-# })();
-# </script>
-# """
-# components.html(NOTIF_BOOTSTRAP, height=0)
 
 # ---------------------------
 # Layout Placeholders
@@ -392,6 +250,8 @@ class _VideoProcessor(VideoTransformerBase):
             "shoulder_raised": 0.0,
             "face_too_close": 0.0,
         }
+        # Track how many alerts have been dispatched to system notifications
+        self._notified_alerts = 0
 
     def reset_calibration(self):
         self.calibration.reset()
@@ -543,6 +403,21 @@ class _VideoProcessor(VideoTransformerBase):
                         if cond in self.issue_history:
                             self.issue_history[cond] += 1
                     self.alerts.extend(self.alert_system.process(triggers, now_sec))
+                    # Dispatch any newly added alerts via system notifications / sound
+                    if self.alerts:
+                        new_alerts = self.alerts[self._notified_alerts:]
+                        if new_alerts:
+                            for a in new_alerts:
+                                raw_msg = a.get("message") if isinstance(a, dict) else str(a)
+                                msg = str(raw_msg) if raw_msg is not None else "Posture alert"
+                                if enable_system_notifications and msg:
+                                    try:
+                                        system_notifier.notify("ErgoSense Posture Alert", msg)
+                                    except Exception:
+                                        pass
+                                if enable_sound:
+                                    system_notifier.play_sound(ALERT_SOUND_FILE)
+                            self._notified_alerts = len(self.alerts)
         except Exception as e:
             print(f"[ErgoSense] Alert processing error: {e}")
 
@@ -692,14 +567,27 @@ def process_new_alerts(vp):
         st.session_state["alerts_shown"] = 0
     if "browser_alert_seq" not in st.session_state:
         st.session_state["browser_alert_seq"] = 0
+    if "active_alerts" not in st.session_state:
+        # Each entry: {message, expires_at}
+        st.session_state["active_alerts"] = []
     if not vp.alerts:
-        alerts_placeholder.write("No alerts")
+        # Prune any lingering expired alerts
+        now = time.time()
+        st.session_state["active_alerts"] = [a for a in st.session_state["active_alerts"] if a["expires_at"] > now]
+        if not st.session_state["active_alerts"]:
+            alerts_placeholder.write("No alerts")
+        else:
+            _render_active_alerts()
         return
     new_alerts = vp.alerts[st.session_state["alerts_shown"]:]
     if new_alerts:
         for a in new_alerts:
-            st.toast(a["message"])
-            # Update browser notification hook
+            # Add to active alert list with 5s lifetime
+            st.session_state["active_alerts"].append({
+                "message": a["message"],
+                "expires_at": time.time() + 5.0
+            })
+            # Update (legacy hook placeholder) - retained for potential future overlay
             st.session_state["browser_alert_seq"] += 1
             seq = st.session_state["browser_alert_seq"]
             safe_msg = html.escape(a["message"])
@@ -712,14 +600,29 @@ def process_new_alerts(vp):
                 f"style='display:none'></div>"
             )
         st.session_state["alerts_shown"] = len(vp.alerts)
-    latest = vp.alerts[-5:]
-    lines = []
-    for a in latest:
-        ts = datetime.fromtimestamp(a["timestamp"]).strftime("%H:%M:%S")
-        lines.append(f"[{ts}] {a['message']}")
-    alerts_placeholder.write("\n".join(lines))
+    _render_active_alerts()
     # Update posture history each cycle after processing alerts
     _render_posture_history(vp)
+
+
+def _render_active_alerts():
+    # Remove expired
+    now = time.time()
+    st.session_state["active_alerts"] = [a for a in st.session_state["active_alerts"] if a["expires_at"] > now]
+    if not st.session_state["active_alerts"]:
+        alerts_placeholder.write("No alerts")
+        return
+    # Build HTML boxes
+    html_blocks = []
+    for a in st.session_state["active_alerts"]:
+        remaining = max(0, a["expires_at"] - now)
+        pct = int((remaining / 5.0) * 100)
+        bar = f"<div style='height:4px;background:#555;border-radius:2px;margin-top:4px;'><div style='height:100%;width:{pct}%;background:#ffa726;border-radius:2px;transition:width 0.25s'></div></div>"
+        html_blocks.append(
+            f"<div style='background:#303030;border:1px solid #555;padding:6px 8px;margin-bottom:6px;border-radius:6px;font-size:0.8rem;color:#fff;'>"
+            f"{html.escape(a['message'])}{bar}</div>"
+        )
+    alerts_placeholder.markdown("".join(html_blocks), unsafe_allow_html=True)
 
 
 def update_metrics_display(vp):
@@ -770,6 +673,13 @@ def main_loop(vp):
 if ctx.state.playing and ctx.video_processor:
     vp = ctx.video_processor
     vp.low_cpu_mode = low_cpu_mode
+    # Dynamically update alert cooldowns from sidebar sliders
+    try:
+        vp.alert_system.cooldowns["neck_forward"] = float(neck_cooldown)
+        vp.alert_system.cooldowns["shoulder_raised"] = float(neck_cooldown)
+        vp.alert_system.cooldowns["face_too_close"] = float(face_cooldown)
+    except Exception:
+        pass
     if "calibration_reset_at" not in st.session_state:
         st.session_state["calibration_reset_at"] = None
     if reset_clicked:
