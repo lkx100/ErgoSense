@@ -50,8 +50,7 @@ from utils.system_notifier import SystemNotifier
 
 # Initialize system notifier
 system_notifier = SystemNotifier()
-# ALERT_SOUND_FILE = "utils/sound-alert.mp3"
-ALERT_SOUND_FILE = "/Users/lucky/Downloads/mixkit-digital-quick-tone-2866.mp3"
+ALERT_SOUND_FILE = "./utils/sound-alert.mp3"
 
 # Custom CSS for modern, minimal UI
 st.set_page_config(page_title="ErgoSense 🧘‍♀️", layout="wide", initial_sidebar_state="expanded")
